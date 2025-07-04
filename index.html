@@ -25,26 +25,120 @@
 <body>
   <div id="label">Hello, HarmonyNotes</div>
   <canvas id="canvas"></canvas>
-  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
-  <script>
-    const canvas = new fabric.Canvas('canvas', {
-      isDrawingMode: true,
-      backgroundColor: '#fff',
-      selection: false,
-      fireRightClick: true,
-      stopContextMenu: true,
-    });
-    function resize(){ canvas.setWidth(window.innerWidth); canvas.setHeight(window.innerHeight); canvas.renderAll(); }
-    window.addEventListener('resize', resize); resize();
-    let panning=false, last={x:0,y:0};
-    canvas.on('mouse:down', o=>{ if(o.e.button===2){ panning=true; last={x:o.e.clientX,y:o.e.clientY}; }});
-    canvas.on('mouse:move', o=>{ if(!panning) return; const d={x:o.e.clientX-last.x,y:o.e.clientY-last.y}; canvas.relativePan(d); last={x:o.e.clientX,y:o.e.clientY}; });
-    canvas.on('mouse:up', ()=>panning=false);
-    canvas.on('mouse:wheel', o=>{ let z=canvas.getZoom() * (0.999**o.e.deltaY); canvas.zoomToPoint({x:o.e.offsetX,y:o.e.offsetY}, Math.min(Math.max(z,0.2),5)); o.e.preventDefault(); });
-    canvas.freeDrawingBrush=new fabric.PencilBrush(canvas);
-    canvas.freeDrawingBrush.width=2;
-    canvas.upperCanvasEl.addEventListener('pointermove', e=>{ if(e.pressure && e.buttons===1) canvas.freeDrawingBrush.width = 1 + e.pressure*9; });
-    canvas.upperCanvasEl.addEventListener('contextmenu', e=>e.preventDefault());
-  </script>
+ <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+<script>
+  // — Canvas setup —
+  const canvas = new fabric.Canvas('canvas', {
+    isDrawingMode: true, backgroundColor: '#fff',
+    selection: false, fireRightClick: true, stopContextMenu: true,
+  });
+  function resize() {
+    canvas.setWidth(window.innerWidth);
+    canvas.setHeight(window.innerHeight);
+    canvas.renderAll();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // — Pressure-sensitive brush —
+  canvas.freeDrawingBrush = new fabric.PencilBrush(canvas);
+  canvas.freeDrawingBrush.width = 2;
+  canvas.upperCanvasEl.addEventListener('pointermove', e => {
+    if (e.pressure && e.buttons === 1) {
+      canvas.freeDrawingBrush.width = 1 + e.pressure * 9;
+    }
+  });
+
+  // — Pan (right-drag) & Mouse-wheel zoom —
+  let isPanning = false, lastPos = {};
+  canvas.on('mouse:down', o => {
+    if (o.e.button === 2) {
+      isPanning = true;
+      lastPos = { x: o.e.clientX, y: o.e.clientY };
+    }
+  });
+  canvas.on('mouse:move', o => {
+    if (!isPanning) return;
+    const delta = { x: o.e.clientX - lastPos.x, y: o.e.clientY - lastPos.y };
+    canvas.relativePan(delta);
+    lastPos = { x: o.e.clientX, y: o.e.clientY };
+  });
+  canvas.on('mouse:up', () => (isPanning = false));
+  canvas.on('mouse:wheel', o => {
+    let z = canvas.getZoom() * (0.999 ** o.e.deltaY);
+    z = Math.min(Math.max(z, 0.2), 5);
+    canvas.zoomToPoint({ x: o.e.offsetX, y: o.e.offsetY }, z);
+    o.e.preventDefault();
+  });
+
+  // — Undo/Redo History —
+  const history = []; let historyIndex = -1;
+  function saveHistory() {
+    historyIndex++;
+    history.splice(historyIndex);
+    history.push(JSON.stringify(canvas.toJSON()));
+  }
+  function undo() {
+    if (historyIndex > 0) {
+      historyIndex--;
+      canvas.loadFromJSON(history[historyIndex], canvas.renderAll.bind(canvas));
+    }
+  }
+  function redo() {
+    if (historyIndex < history.length - 1) {
+      historyIndex++;
+      canvas.loadFromJSON(history[historyIndex], canvas.renderAll.bind(canvas));
+    }
+  }
+  saveHistory();
+  canvas.on('path:created', saveHistory);
+
+  // — Touch Gestures: 2-finger undo, 3-finger redo —
+  let touchData = { start: 0, max: 0 };
+  canvas.upperCanvasEl.addEventListener('touchstart', e => {
+    touchData = { start: Date.now(), max: e.touches.length };
+  });
+  canvas.upperCanvasEl.addEventListener('touchmove', e => {
+    touchData.max = Math.max(touchData.max, e.touches.length);
+  });
+  canvas.upperCanvasEl.addEventListener('touchend', () => {
+    const dt = Date.now() - touchData.start;
+    if (dt < 300) {
+      if (touchData.max === 2) undo();
+      else if (touchData.max === 3) redo();
+    }
+  });
+
+  // — Pinch to Zoom —
+  let lastDist = 0;
+  canvas.upperCanvasEl.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      lastDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+    }
+  });
+  canvas.upperCanvasEl.addEventListener('touchmove', e => {
+    if (e.touches.length === 2) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const rect = canvas.upperCanvasEl.getBoundingClientRect();
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const x = midX - rect.left, y = midY - rect.top;
+      let zoom = canvas.getZoom() * (dist / lastDist);
+      zoom = Math.min(Math.max(zoom, 0.2), 5);
+      canvas.zoomToPoint({ x, y }, zoom);
+      lastDist = dist;
+      e.preventDefault();
+    }
+  });
+
+  // — Block context menu for panning —
+  canvas.upperCanvasEl.addEventListener('contextmenu', e => e.preventDefault());
+</script>
 </body>
 </html>
