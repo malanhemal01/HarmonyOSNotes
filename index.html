@@ -24,8 +24,14 @@
 </head>
 <body>
   <div id="label">Hello, HarmonyNotes</div>
+  <div id="color-picker" 
+     style="position:absolute; top:50px; left:10px; width:140px; height:140px; z-index:10;">
+</div>
   <canvas id="canvas"></canvas>
  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js"></script>
+  <!-- color wheel library -->
+<script src="https://cdn.jsdelivr.net/npm/iro@5.6.0/dist/iro.min.js"></script>
+
 <script>
   // — Canvas setup —
   const canvas = new fabric.Canvas('canvas', {
@@ -48,6 +54,16 @@
       canvas.freeDrawingBrush.width = 1 + e.pressure * 9;
     }
   });
+
+  // — initialize brush color & attach color wheel —
+canvas.freeDrawingBrush.color = '#000000';
+const picker = new iro.ColorPicker('#color-picker', {
+  width: 140,
+  color: '#000'
+});
+picker.on('color:change', function(color) {
+  canvas.freeDrawingBrush.color = color.hexString;
+});
 
   // — Pan (right-drag) & Mouse-wheel zoom —
   let isPanning = false, lastPos = {};
